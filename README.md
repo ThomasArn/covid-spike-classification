@@ -1,9 +1,9 @@
-# Detect interesting SARS-CoV-2 spike protein variants from Sanger sequencing data
+# Detect interesting SARS-CoV-2 spike protein variants from Sanger sequencing dat and full genomes
 
 `covid-spike-classification` is a script to call interesting SARS-CoV-2 spike protein variants
-from Sanger sequencing to support the Danish COVID-19 monitoring efforts.
+from Sanger sequencing and genome assemblies to support the Danish COVID-19 monitoring efforts.
 
-Using Sanger-sequenced RT-PCR product of the spike protein, this tool should pick up all relevant
+Using Sanger-sequenced RT-PCR product of the spike protein or a complete genome, this tool should pick up all relevant
 mutations currently tracked and give a table with one row per sample and a yes/no/failed column per
 tracked mutation.
 

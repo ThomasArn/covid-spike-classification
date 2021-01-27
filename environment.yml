@@ -8,3 +8,5 @@ dependencies:
   - python=3.8
   - samtools=1.11=h6270b1f_0
   - tracy=0.5.3=0
+  - mafft>=7.305
+  - snp-sites>=2.4.0

@@ -5,7 +5,9 @@ import os
 import shutil
 import subprocess
 import sys
-import zipfile
+import pandas as pd
+import io
+import re
 
 from Bio.Seq import Seq
 
@@ -32,17 +34,7 @@ def basecall(tmpdir, config):
     fastq_dir = os.path.join(tmpdir, "fastqs")
     os.makedirs(fastq_dir)
 
-    if os.path.isdir(config.reads):
-        ab1_dir = config.reads
-    else:
-        ab1_dir = os.path.join(tmpdir, "ab1s")
-        os.makedirs(ab1_dir)
-        with zipfile.ZipFile(config.reads) as sanger_zip:
-            ab1_files = [finfo for finfo in sanger_zip.infolist() if finfo.filename.endswith(".ab1")]
-            for sanger_file in ab1_files:
-                sanger_zip.extract(sanger_file, ab1_dir)
-
-    for sanger_file in glob.glob(os.path.join(ab1_dir, "*.ab1")):
+    for sanger_file in glob.glob(os.path.join(config.datadir, "*.ab1")):
         base_name = os.path.basename(sanger_file)
         cmd = ["tracy", "basecall", "-f", "fastq", "-o", os.path.join(fastq_dir, f"{base_name}.fastq"), sanger_file]
         kwargs = {}
@@ -83,6 +75,74 @@ def map_reads(tmpdir, config):
         subprocess.check_call(sam_idx_cmd, stderr=stderr)
 
 
+def align_fasta(tmpdir, config):
+    fasta  = config.genome
+    alignment_dir = os.path.join(tmpdir, "alignment")
+    os.makedirs(alignment_dir)
+    cwd    = os.getcwd()
+    stderr = subprocess.DEVNULL if config.quiet else None
+    
+    cat_cmd      = ["cat ", config.reference, " ", os.path.realpath(config.genome), " > ", tmpdir, "/multifasta.fasta"]  
+    mafft_cmd    = ["mafft --quiet ", tmpdir, "/multifasta.fasta", " > ", tmpdir, "/alignment/multifasta.aln"]
+    snpsites_cmd = ["snp-sites -vb -o ", tmpdir, "/alignment/multifasta.vcf ", tmpdir, "/alignment/multifasta.aln"] 
+        
+    os.system("".join(cat_cmd))
+    os.system("".join(mafft_cmd))
+    os.system("".join(snpsites_cmd))
+    
+
+def parse_vcf(tmpdir, config):
+    vcf_dir = os.path.join(tmpdir, "/alignment")
+    outfile = open(os.path.join(config.outdir, "results.csv"), "w")
+    print("sample", *REGIONS.keys(), sep=",", file=outfile)
+    df_vcf = read_vcf("".join([tmpdir, "/alignment/multifasta.vcf"]))
+    base_name = os.path.basename(config.genome)
+    sample_id = base_name.split(".")[0]
+    parts = [sample_id]
+    
+    for variant, region in REGIONS.items():  
+        ints         = [int(x) for x in region.split(":")[1].split("-")] 
+        region_range = list(range(ints[0], ints[1]+1))
+        boolean      = df_vcf.POS.isin(region_range)
+        df           = df_vcf[boolean]
+        ref_nuc      = list(df.REF)
+        alt_nuc      = list(df.ALT)
+        alt_triplet  = return_triplet(ref_nuc, alt_nuc)
+        before       = Seq("".join(ref_nuc)).translate()
+        after        = Seq("".join(alt_triplet)).translate()
+        
+        if before == after:
+            parts.append("n")
+        elif after == variant[-1]:
+            parts.append("y")
+        else:
+            if config.show_unexpected:
+                parts.append(f"{before}{variant[1:-1]}{after}")
+            else:
+                parts.append("n")
+    print(*parts, sep=",", file=outfile)
+
+    outfile.close()
+
+
+def return_triplet(ref_nuc, alt_nuc):
+    triplet = []
+    for idx, nucleotide in enumerate(ref_nuc):
+            if alt_nuc[idx] == '.':
+                triplet.append(nucleotide)
+            else:
+                triplet.append(alt_nuc[idx])
+    return triplet
+
+
+def read_vcf(filename):
+    with open(filename, 'r') as f:
+        lines = [line for line in f if not line.startswith('##')]
+        dataframe = pd.read_csv(
+            io.StringIO(''.join(lines)),sep='\t')
+    return dataframe
+
+
 def check_variants(tmpdir, config):
     bam_dir = os.path.join(tmpdir, "bams")
     outfile = open(os.path.join(config.outdir, "results.csv"), "w")
@@ -96,18 +156,18 @@ def check_variants(tmpdir, config):
             try:
                 before, after, quality = call_variant(config.reference, bam_file, region)
                 if before == after:
-                    parts.append("0")
+                    parts.append("n")
                 elif after == variant[-1]:
-                    parts.append("1")
+                    parts.append("y")
                 else:
                     if config.show_unexpected:
                         parts.append(f"{before}{variant[1:-1]}{after}")
                     else:
-                        parts.append("0")
+                        parts.append("n")
             except PileupFailedError:
                 parts.append("NA")
             except BaseDeletedError:
-                parts.append("NA")
+                parts.append("0")
             except:
                 if config.debug:
                     shutil.copy2(bam_file, "keep")
