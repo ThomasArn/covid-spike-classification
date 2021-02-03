@@ -108,18 +108,22 @@ def parse_vcf(tmpdir, config):
         ref_nuc      = list(df.REF)
         alt_nuc      = list(df.ALT)
         alt_triplet  = return_triplet(ref_nuc, alt_nuc)
-        before       = Seq("".join(ref_nuc)).translate()
-        after        = Seq("".join(alt_triplet)).translate()
-        
-        if before == after:
-            parts.append("n")
-        elif after == variant[-1]:
-            parts.append("y")
+        if '*' in alt_triplet:
+            parts.append("u")    
         else:
-            if config.show_unexpected:
-                parts.append(f"{before}{variant[1:-1]}{after}")
-            else:
+
+            before       = Seq("".join(ref_nuc)).translate()
+            after        = Seq("".join(alt_triplet)).translate()
+       
+            if before == after:
                 parts.append("n")
+            elif after == variant[-1]:
+                parts.append("y")
+            else:
+                if config.show_unexpected:
+                    parts.append(f"{before}{variant[1:-1]}{after}")
+                else:
+                    parts.append("n")
     print(*parts, sep=",", file=outfile)
 
     outfile.close()
