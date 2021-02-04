@@ -3,6 +3,7 @@
 class CSCConfig:
     __slots__ = (
         'datadir',
+        'genome',
         'reference',
         'outdir',
         'quiet',

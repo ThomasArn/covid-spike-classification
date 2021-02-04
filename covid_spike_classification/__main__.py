@@ -11,9 +11,13 @@ from .config import CSCConfig
 
 from .core import (
     REGIONS,
+    DELETIONS,
     basecall,
     map_reads,
-    check_variants
+    align_fasta,
+    check_variants,
+    parse_vcf,
+    get_deletions
 )
 
 
@@ -21,6 +25,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-D", "--datadir", default=os.path.join(os.getcwd(), "data"),
                         help="Directory containing the ab1 files to call variants on (default: %(default)s).")
+    parser.add_argument("--genome", default=False,
+                        help="input is a genome file as fasta")
     parser.add_argument("-r", "--reference", default=os.path.join(os.getcwd(), "ref", "NC_045512.fasta"),
                         help="Reference FASTA file to use (default: %(default)s).")
     parser.add_argument("-o", "--outdir",
@@ -37,16 +43,24 @@ def main():
     args = parser.parse_args()
 
     config = CSCConfig.from_args(args)
-
+    
     os.makedirs(args.outdir, exist_ok=True)
+    if args.genome is False:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            basecall(tmpdir, config)
+            map_reads(tmpdir, config)
+            check_variants(tmpdir, config)
+            if config.zip_results:
+                shutil.make_archive(config.outdir, "zip", root_dir=config.outdir)
+                shutil.rmtree(config.outdir, ignore_errors=True)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        basecall(tmpdir, config)
-        map_reads(tmpdir, config)
-        check_variants(tmpdir, config)
-        if config.zip_results:
-            shutil.make_archive(config.outdir, "zip", root_dir=config.outdir)
-            shutil.rmtree(config.outdir, ignore_errors=True)
+    else:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            align_fasta(tmpdir, config)
+            parse_vcf(tmpdir, config)
+            if config.zip_results:
+                shutil.make_archive(config.outdir, "zip", root_dir=config.outdir)
+                shutil.rmtree(config.outdir, ignore_errors=True)
 
 
 if __name__ == "__main__":

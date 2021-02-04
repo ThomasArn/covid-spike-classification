@@ -10,6 +10,7 @@ import io
 import re
 
 from Bio.Seq import Seq
+from Bio import AlignIO
 
 REGIONS = {
     "N439K": "NC_045512:22877-22879",
@@ -20,7 +21,11 @@ REGIONS = {
     "D614G": "NC_045512:23402-23404",
     "H655Y": "NC_045512:23525-23527",
 }
-
+DELETIONS = {
+    "S:H69/V70": "NC_045512:21765-21770",
+    "S:Y144"   : "NC_045512:21991-21993",
+    
+}
 
 class PileupFailedError(RuntimeError):
     pass
@@ -89,17 +94,36 @@ def align_fasta(tmpdir, config):
     os.system("".join(cat_cmd))
     os.system("".join(mafft_cmd))
     os.system("".join(snpsites_cmd))
-    
+    os.system("".join(["cp ",   tmpdir, "/alignment/multifasta.aln ",  config.outdir , "/" ,  os.path.basename(config.genome), ".aln" ]) ) 
+    os.system("".join(["cp ",   tmpdir, "/alignment/multifasta.vcf ",  config.outdir , "/" ,  os.path.basename(config.genome), ".vcf"]) ) 
 
 def parse_vcf(tmpdir, config):
     vcf_dir = os.path.join(tmpdir, "/alignment")
     outfile = open(os.path.join(config.outdir, "results.csv"), "w")
-    print("sample", *REGIONS.keys(), sep=",", file=outfile)
+    print("sample",*DELETIONS.keys(), *REGIONS.keys(), sep=",", file=outfile)
     df_vcf = read_vcf("".join([tmpdir, "/alignment/multifasta.vcf"]))
     base_name = os.path.basename(config.genome)
     sample_id = base_name.split(".")[0]
     parts = [sample_id]
+ 
+    for variant, region in DELETIONS.items():  
+        ints           = [int(x) for x in region.split(":")[1].split("-")] 
+        region_range   = list(range(ints[0], ints[1]+1))
+        align          = AlignIO.read("".join([config.outdir , "/" ,  os.path.basename(config.genome), ".aln" ]), "fasta")
+        lower_position = get_deletions(align, min(region_range))
+        upper_position = get_deletions(align, max(region_range))
+        deletion_seq   = align[1].seq[lower_position:(upper_position+1)]
+        ref_seq        = align[0].seq[lower_position:(upper_position+1)]
+        if 'n' in deletion_seq:
+            parts.append("u")
+        elif len(set(deletion_seq)) == 1 and list(set(deletion_seq))[0] == "-":
+            parts.append("y")
+        elif deletion_seq == ref_seq:
+            parts.append("n")
+        else:
+            parts.append("new")
     
+
     for variant, region in REGIONS.items():  
         ints         = [int(x) for x in region.split(":")[1].split("-")] 
         region_range = list(range(ints[0], ints[1]+1))
@@ -146,6 +170,13 @@ def read_vcf(filename):
             io.StringIO(''.join(lines)),sep='\t')
     return dataframe
 
+def get_deletions(alignment, position):
+    count=1    
+    for align_count, res in enumerate(alignment[0]):
+        if res != '-':
+            if count == position:
+                return align_count
+            count+=1 
 
 def check_variants(tmpdir, config):
     bam_dir = os.path.join(tmpdir, "bams")
